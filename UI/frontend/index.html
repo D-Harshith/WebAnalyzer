@@ -48,18 +48,17 @@
         setLoading(false);
       };
 
-      const radarData = scores ? {
-        labels: Object.keys(scores).filter(k => k !== 'Final AI Visibility Score' && !k.includes('Count')),
-        datasets: [{
-          label: 'AI Visibility Scores',
-          data: Object.entries(scores)
-            .filter(([k]) => k !== 'Final AI Visibility Score' && !k.includes('Count'))
-            .map(([_, v]) => v),
-          backgroundColor: 'rgba(54, 162, 235, 0.2)',
-          borderColor: 'rgba(54, 162, 235, 1)',
-          pointBackgroundColor: 'rgba(54, 162, 235, 1)'
-        }]
-      } : null;
+      const aggregateScores = (scores) => {
+        if (!scores) return null;
+        const contentQuality = ((scores['Semantic Score'] || 0) + (scores['Readability Score'] || 0) + (scores['Entity Density Score'] || 0) + (scores['Paragraph Coherence Score'] || 0)) / 4;
+        const metadataEffectiveness = ((scores['Meta Tag Score'] || 0) + (scores['JSON-LD Score'] || 0) + (scores['Image ALT Score'] || 0)) / 3;
+        const structureHeadings = scores['Heading Structure Score'] || 0;
+        const linkAccessibility = ((scores['Internal Link Score'] || 0) + (scores['Crawlability Score'] || 0) + (scores['Mobile Optimization Score'] || 0)) / 3;
+        const overallVisibility = scores['Final AI Visibility Score'] || 0;
+        return { 'Content Quality': contentQuality.toFixed(2), 'Metadata Effectiveness': metadataEffectiveness.toFixed(2), 'Structure & Headings': structureHeadings, 'Link & Accessibility': linkAccessibility.toFixed(2), 'Overall Visibility': overallVisibility };
+      };
+
+      const aggregatedScores = scores ? aggregateScores(scores) : null;
 
       return (
         <div className="min-h-screen bg-gray-100 p-4">
@@ -82,34 +81,45 @@
               </button>
             </div>
             {error && <p className="text-red-500 mb-4">{error}</p>}
-            {scores && (
-              <div className="bg-white p-4 rounded shadow">
+            {aggregatedScores && (
+              <div className="bg-white p-4 rounded shadow" style={{ width: '100%' }}>
                 <h2 className="text-2xl font-semibold mb-4">AI Visibility Report</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    {screenshot && (
-                      <div className="mb-4">
-                        <h3 className="text-lg font-medium">Website Screenshot</h3>
-                        <img src={`data:image/png;base64,${screenshot}`} alt="Website screenshot" className="w-full rounded" />
+                <div className="flex flex-col items-center">
+                  {screenshot && (
+                    <div className="mb-4">
+                      <h3 className="text-lg font-medium">Website Screenshot</h3>
+                      <div className="w-[800px] h-[1000px] overflow-hidden">
+                        <img src={`data:image/png;base64,${screenshot}`} alt="Website screenshot" className="w-full h-full object-cover" />
                       </div>
-                    )}
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-medium mb-2">Score Breakdown</h3>
-                    <ul className="mb-4">
-                      {Object.entries(scores).map(([key, value]) => (
-                        <li key={key} className="mb-1">
-                          <span className="font-medium">{key}:</span> {value}
+                    </div>
+                  )}
+                  <div className="text-center">
+                    <h3 className="text-xl font-medium mb-2">Score Overview</h3>
+                    <ul className="list-none mb-4">
+                      {Object.entries(aggregatedScores).map(([key, value]) => (
+                        <li key={key} className="m-2 text-l">
+                          <span className="font-bold">{key}:</span> {value}%
                         </li>
                       ))}
                     </ul>
-                    {Radar && radarData && (
+                    {Radar && aggregatedScores && (
                       <div>
-                        <h3 className="text-lg font-medium mb-2">Score Visualization</h3>
-                        <Radar data={radarData} options={{ scales: { r: { beginAtZero: true, max: 100 } } }} />
+                        <h3 className="text-xl font-medium mb-2">Score Visualization</h3>
+                        <Radar data={{ labels: Object.keys(aggregatedScores), datasets: [{ label: 'AI Visibility Scores', data: Object.values(aggregatedScores).map(v => parseFloat(v)), backgroundColor: 'rgba(54, 162, 235, 0.2)', borderColor: 'rgba(54, 162, 235, 1)', pointBackgroundColor: 'rgba(54, 162, 235, 1)' }] }} options={{ scales: { r: { beginAtZero: true, max: 100 } } }} />
                       </div>
                     )}
-                    {!Radar && <p>Chart visualization not available (requires build setup).</p>}
+                    
+                    {aggregatedScores['Overall Visibility'] && (
+                      <div className="mt-4">
+                        <span className="font-bold text-2xl">Final Score: {aggregatedScores['Overall Visibility']}%</span>
+                        <button
+                          className="ml-2 p-1 bg-gray-300 text-black rounded hover:bg-gray-400"
+                          onClick={() => alert('Chatbot feature coming soon!')} // Placeholder for chatbot
+                        >
+                          Learn More
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
