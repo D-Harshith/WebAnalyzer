@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Visibility Score</title>
+  <script src="js/react.production.min.js" defer></script>
+  <script src="js/react-dom.production.min.js" defer></script>
+  <script src="js/chart.min.js" defer></script>
+  <script src="js/react-chartjs-2.umd.min.js" defer></script>
+  <script src="https://cdn.tailwindcss.com" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.22.9/babel.min.js" defer></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" defer>
+    const { useState } = React;
+    const Radar = typeof window.ReactChartjs2 !== 'undefined' ? window.ReactChartjs2.Radar : null;
+
+    const App = () => {
+      const [url, setUrl] = useState('');
+      const [scores, setScores] = useState(null);
+      const [screenshot, setScreenshot] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState('');
+
+      const handleAnalyze = async () => {
+        setLoading(true);
+        setError('');
+        setScores(null);
+        setScreenshot(null);
+        try {
+          const response = await fetch('http://localhost:8001/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url })
+          });
+          const data = await response.json();
+          if (data.error) {
+            setError(data.error);
+          } else {
+            setScores(data.scores);
+            setScreenshot(data.screenshot);
+          }
+        } catch (err) {
+          setError('Failed to analyze URL. Please try again.');
+        }
+        setLoading(false);
+      };
+
+      const radarData = scores ? {
+        labels: Object.keys(scores).filter(k => k !== 'Final AI Visibility Score' && !k.includes('Count')),
+        datasets: [{
+          label: 'AI Visibility Scores',
+          data: Object.entries(scores)
+            .filter(([k]) => k !== 'Final AI Visibility Score' && !k.includes('Count'))
+            .map(([_, v]) => v),
+          backgroundColor: 'rgba(54, 162, 235, 0.2)',
+          borderColor: 'rgba(54, 162, 235, 1)',
+          pointBackgroundColor: 'rgba(54, 162, 235, 1)'
+        }]
+      } : null;
+
+      return (
+        <div className="min-h-screen bg-gray-100 p-4">
+          <div className="max-w-4xl mx-auto">
+            <h1 className="text-3xl font-bold text-center mb-4">AI Visibility Score Analyzer</h1>
+            <div className="flex mb-4">
+              <input
+                type="text"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="Enter website URL (e.g., https://www.example.com)"
+                className="flex-1 p-2 border rounded-l"
+              />
+              <button
+                onClick={handleAnalyze}
+                disabled={loading}
+                className="p-2 bg-blue-500 text-white rounded-r disabled:bg-gray-400"
+              >
+                {loading ? 'Analyzing...' : 'Analyze'}
+              </button>
+            </div>
+            {error && <p className="text-red-500 mb-4">{error}</p>}
+            {scores && (
+              <div className="bg-white p-4 rounded shadow">
+                <h2 className="text-2xl font-semibold mb-4">AI Visibility Report</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    {screenshot && (
+                      <div className="mb-4">
+                        <h3 className="text-lg font-medium">Website Screenshot</h3>
+                        <img src={`data:image/png;base64,${screenshot}`} alt="Website screenshot" className="w-full rounded" />
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-medium mb-2">Score Breakdown</h3>
+                    <ul className="mb-4">
+                      {Object.entries(scores).map(([key, value]) => (
+                        <li key={key} className="mb-1">
+                          <span className="font-medium">{key}:</span> {value}
+                        </li>
+                      ))}
+                    </ul>
+                    {Radar && radarData && (
+                      <div>
+                        <h3 className="text-lg font-medium mb-2">Score Visualization</h3>
+                        <Radar data={radarData} options={{ scales: { r: { beginAtZero: true, max: 100 } } }} />
+                      </div>
+                    )}
+                    {!Radar && <p>Chart visualization not available (requires build setup).</p>}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
