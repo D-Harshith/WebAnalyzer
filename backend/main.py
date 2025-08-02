@@ -35,8 +35,15 @@ app = FastAPI()
 # Load environment variables
 load_dotenv()
 
+# Debug and set correct path
+print(f"Current directory: {os.getcwd()}")
+print(f"Frontend exists: {os.path.exists('frontend')}")  # Relative to main.py
+frontend_path = os.path.join(os.path.dirname(__file__), "frontend")
+print(f"Adjusted frontend path: {frontend_path}")
+print(f"Frontend exists at adjusted path: {os.path.exists(frontend_path)}")
+
 # Mount frontend static files
-app.mount("/", StaticFiles(directory="frontend", html=True), name="static")
+app.mount("/", StaticFiles(directory=frontend_path, html=True), name="static")
 
 # Allow CORS for frontend
 app.add_middleware(
