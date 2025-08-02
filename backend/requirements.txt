@@ -1,4 +1,4 @@
-fastapi==0.111.0
+fastapi==0.99.0  # Changed from 0.111.0
 uvicorn==0.30.1
 playwright==1.45.1
 beautifulsoup4==4.12.3
@@ -11,6 +11,6 @@ numpy==1.26.4
 langchain-community==0.2.10
 langchain-chroma==0.1.2
 langchain-openai==0.1.20
-pydantic==1.10.15  # Downgraded from 2.8.2 to resolve conflict with chromadb
+pydantic==1.10.15
 python-dotenv==1.0.1
 aiohttp==3.9.5
