@@ -394,5 +394,5 @@ async def chat_with_bot(input: ChatInput):
         return {"response": f"Error occurred: {str(e)}"}
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8001))
+    port = int(os.getenv("PORT", 10000))
     uvicorn.run(app, host="0.0.0.0", port=port)
