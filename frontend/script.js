@@ -1,111 +1,89 @@
-let currentScores = null;
-
-function openChatModal() {
-    document.getElementById('modalOverlay').style.display = 'block';
-    document.getElementById('chatModal').style.display = 'flex';
-    document.getElementById('chatInput').focus();
-}
-
-function closeChatModal() {
-    document.getElementById('modalOverlay').style.display = 'none';
-    document.getElementById('chatModal').style.display = 'none';
-}
+let currentScores = {};
 
 async function analyzeUrl() {
     const urlInput = document.getElementById('urlInput').value;
-    if (!urlInput.match(/^https?:\/\/[^\s/$.?#].[^\s]*$/)) {
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    const results = document.getElementById('results');
+    const scoreGauge = document.getElementById('scoreGauge');
+    const finalScore = document.getElementById('finalScore');
+    const scoreDetails = document.getElementById('scoreDetails');
+    const screenshot = document.getElementById('screenshot');
+
+    if (!urlInput) {
         alert('Please enter a valid URL');
         return;
     }
-    const analyzeBtn = document.getElementById('analyzeBtn');
+
+    analyzeBtn.classList.add('analyzing');
     analyzeBtn.textContent = 'Analyzing...';
     analyzeBtn.disabled = true;
-    analyzeBtn.classList.add('analyzing');
+
     try {
         const response = await fetch('/api/analyze', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url: urlInput })
         });
-        console.log('Response status:', response.status);
-        const text = await response.text();
-        console.log('Response text:', text);
-        if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
-        const data = JSON.parse(text);
-        if (!data.scores || !data.scores['Final AI Visibility Score']) {
-            throw new Error('Invalid response: scores or Final AI Visibility Score missing');
+
+        if (!response.ok) {
+            throw new Error('Failed to analyze URL');
         }
+
+        const data = await response.json();
         currentScores = data.scores;
-        displayResults(data.scores, data.screenshot);
-        document.getElementById('results').classList.remove('hidden');
+
+        // Update gauge
+        finalScore.textContent = data.scores['Final AI Visibility Score'];
+        scoreGauge.style.background = `conic-gradient(#00ff00 0% ${data.scores['Final AI Visibility Score']}%, #333333 ${data.scores['Final AI Visibility Score']}% 100%)`;
+
+        // Update score details
+        scoreDetails.innerHTML = '';
+        for (const [key, value] of Object.entries(data.scores)) {
+            const detail = document.createElement('div');
+            detail.className = 'bg-gray-900 p-4 rounded-lg';
+            detail.innerHTML = `<strong>${key}:</strong> ${value}${key.includes('Count') ? '' : '%'}`;
+            scoreDetails.appendChild(detail);
+        }
+
+        // Update screenshot
+        screenshot.src = `data:image/png;base64,${data.screenshot}`;
+
+        results.classList.remove('hidden');
     } catch (error) {
         console.error('Error:', error);
-        alert('Error analyzing URL: ' + error.message);
+        alert('An error occurred while analyzing the URL');
     } finally {
+        analyzeBtn.classList.remove('analyzing');
         analyzeBtn.textContent = 'Analyze';
         analyzeBtn.disabled = false;
-        analyzeBtn.classList.remove('analyzing');
     }
 }
 
-function displayResults(scores, screenshot) {
-    const finalScore = scores['Final AI Visibility Score'];
-    const scoreGauge = document.getElementById('scoreGauge');
-    const finalScoreSpan = document.getElementById('finalScore');
-    scoreGauge.style.background = `conic-gradient(#00ff00 0% 0%, #333333 0% 100%)`;
-    finalScoreSpan.textContent = '0';
-
-    // Animate the gauge
-    let currentScore = 0;
-    const increment = finalScore / 50;
-    const animateGauge = setInterval(() => {
-        currentScore += increment;
-        if (currentScore >= finalScore) {
-            currentScore = finalScore;
-            clearInterval(animateGauge);
-        }
-        finalScoreSpan.textContent = currentScore.toFixed(1);
-        scoreGauge.style.background = `conic-gradient(#00ff00 0% ${currentScore}%, #333333 ${currentScore}% 100%)`;
-    }, 20);
-
-    const scoreDetails = document.getElementById('scoreDetails');
-    scoreDetails.innerHTML = '';
-    for (const [key, value] of Object.entries(scores)) {
-        if (key !== 'Final AI Visibility Score' && !key.includes('Count')) {
-            const div = document.createElement('div');
-            div.className = 'bg-gray-900 p-4 rounded-lg';
-            div.innerHTML = `<p class="font-semibold">${key}</p><p class="text-2xl">${value}%</p>`;
-            scoreDetails.appendChild(div);
-        }
-    }
-
-    const screenshotImg = document.getElementById('screenshot');
-    screenshotImg.src = `data:image/png;base64,${screenshot}`;
+function openChatModal() {
+    document.getElementById('chatModal').style.display = 'flex';
+    document.getElementById('modalOverlay').style.display = 'block';
 }
 
-function addChatMessage(text, isUser) {
-    const chatContainer = document.getElementById('chatContainer');
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `chat-message ${isUser ? 'user-message' : 'bot-message'}`;
-    messageDiv.textContent = text;
-    chatContainer.appendChild(messageDiv);
-    chatContainer.scrollTop = chatContainer.scrollHeight;
+function closeChatModal() {
+    document.getElementById('chatModal').style.display = 'none';
+    document.getElementById('modalOverlay').style.display = 'none';
 }
 
 async function sendChatQuery() {
     const chatInput = document.getElementById('chatInput');
+    const chatContainer = document.getElementById('chatContainer');
     const query = chatInput.value.trim();
+
     if (!query) {
         alert('Please enter a question');
         return;
     }
 
-    const chatBtn = document.getElementById('chatBtn');
-    chatBtn.textContent = 'Sending...';
-    chatBtn.disabled = true;
-
-    addChatMessage(query, true);
-    chatInput.value = '';
+    // Add user message
+    const userMessage = document.createElement('div');
+    userMessage.className = 'chat-message user-message';
+    userMessage.textContent = query;
+    chatContainer.appendChild(userMessage);
 
     try {
         const response = await fetch('/api/chat', {
@@ -113,13 +91,30 @@ async function sendChatQuery() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ query, scores: currentScores })
         });
-        if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
+
+        if (!response.ok) {
+            throw new Error('Failed to get chat response');
+        }
+
         const data = await response.json();
-        addChatMessage(data.response, false);
+        const botMessage = document.createElement('div');
+        botMessage.className = 'chat-message bot-message';
+        botMessage.textContent = data.response;
+        chatContainer.appendChild(botMessage);
     } catch (error) {
-        addChatMessage('Error: ' + error.message, false);
-    } finally {
-        chatBtn.textContent = 'Send';
-        chatBtn.disabled = false;
+        console.error('Error:', error);
+        const botMessage = document.createElement('div');
+        botMessage.className = 'chat-message bot-message';
+        botMessage.textContent = 'Sorry, an error occurred while processing your request.';
+        chatContainer.appendChild(botMessage);
     }
+
+    chatInput.value = '';
+    chatContainer.scrollTop = chatContainer.scrollHeight;
 }
+
+document.getElementById('chatInput').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        sendChatQuery();
+    }
+});
