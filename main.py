@@ -34,6 +34,10 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
+# Log the PORT environment variable
+port = os.getenv("PORT", "10000")
+logger.info(f"Starting application on port: {port}")
+
 app = FastAPI()
 
 # Initialize Chroma database
@@ -54,6 +58,7 @@ def initialize_chroma_db():
             text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
             splits = text_splitter.split_documents(docs)
             Chroma.from_documents(documents=splits, embedding=embedding_function, persist_directory=CHROMA_PATH)
+            logger.info("Chroma DB initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize Chroma DB: {str(e)}")
 
