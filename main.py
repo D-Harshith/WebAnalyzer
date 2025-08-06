@@ -1,4 +1,3 @@
-
 import asyncio
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -340,7 +339,3 @@ def content_length_score(word_count):
 def crawlability_score(load_time, robots_blocked):
     """Calculates crawlability score."""
     return 0 if robots_blocked else max(1.0 - load_time / 10, 0.5)
-
-if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8001))
-    uvicorn.run(app, host="0.0.0.0", port=port)
