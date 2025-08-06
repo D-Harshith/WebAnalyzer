@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!-- <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -222,29 +222,25 @@
                 alert('Please enter a valid URL');
                 return;
             }
-
             const analyzeBtn = document.getElementById('analyzeBtn');
             analyzeBtn.textContent = 'Analyzing...';
             analyzeBtn.disabled = true;
             analyzeBtn.classList.add('analyzing');
-
             try {
-                const response = await fetch('/api/analyze', {
+                const response = await fetch('http://localhost:8001/api/analyze', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ url: urlInput })
                 });
+                console.log('Response status:', response.status, 'Response:', await response.text());
+                if (!response.ok) throw new Error('Request failed');
                 const data = await response.json();
-
-                if (data.error) {
-                    alert(data.error);
-                    return;
-                }
-
+                if (!data.scores) throw new Error('No scores in response');
                 currentScores = data.scores;
                 displayResults(data.scores, data.screenshot);
                 document.getElementById('results').classList.remove('hidden');
             } catch (error) {
+                console.error('Error:', error);
                 alert('Error analyzing URL: ' + error.message);
             } finally {
                 analyzeBtn.textContent = 'Analyze';
@@ -315,5 +311,93 @@
             }
         }
     </script>
+</body>
+</html> -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Visibility Score</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="/static/styles.css" rel="stylesheet">
+</head>
+<body class="flex flex-col items-center justify-center py-10">
+    <div class="text-center">
+        <h1 class="text-4xl font-bold mb-2">AI Visibility Score</h1>
+        <p class="text-lg text-gray-300 mb-6">Analyze your website's visibility for AI systems</p>
+    </div>
+
+    <div class="w-full max-w-md bg-gray-800 rounded-lg p-6 shadow-lg">
+        <input
+            id="urlInput"
+            type="text"
+            placeholder="Enter website URL (e.g., https://example.com)"
+            class="w-full p-3 rounded-md bg-gray-900 text-white border border-gray-700 focus:outline-none focus:border-green-500 mb-4"
+        />
+        <button
+            id="analyzeBtn"
+            class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-full transition analyze-btn"
+            onclick="analyzeUrl()"
+        >
+            Analyze
+        </button>
+    </div>
+
+    <div id="results" class="hidden w-full max-w-2xl mt-10">
+        <div class="flex flex-col items-center mb-8">
+            <div class="gauge" id="scoreGauge">
+                <span id="finalScore">0</span>
+            </div>
+            <h2 class="text-2xl font-semibold mt-4">AI Visibility Score</h2>
+            <button
+                id="learnMoreBtn"
+                class="mt-4 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-6 rounded-full transition"
+                onclick="openChatModal()"
+            >
+                Learn More
+            </button>
+        </div>
+        <div id="scoreDetails" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+        <div class="mt-8">
+            <h3 class="text-xl font-semibold mb-4">Website Screenshot</h3>
+            <img id="screenshot" class="w-full rounded-lg shadow-lg" alt="Website Screenshot" />
+        </div>
+    </div>
+
+    <div class="overlay" id="modalOverlay"></div>
+    <div class="modal" id="chatModal">
+        <div class="modal-header">
+            <h3 class="text-xl font-semibold">Chat About Your Scores</h3>
+            <button
+                class="text-gray-300 hover:text-white"
+                onclick="closeChatModal()"
+            >
+                ✕
+            </button>
+        </div>
+        <div class="modal-content">
+            <div class="chat-container" id="chatContainer"></div>
+            <div class="input-container">
+                <input
+                    id="chatInput"
+                    type="text"
+                    placeholder="Ask about your website's scores..."
+                    class="flex-grow p-3 rounded-l-md bg-gray-900 text-white border border-gray-700 focus:outline-none focus:border-green-500"
+                />
+                <button
+                    id="chatBtn"
+                    class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-r-md transition"
+                    onclick="sendChatQuery()"
+                >
+                    Send
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/script.js"></script>
 </body>
 </html>
