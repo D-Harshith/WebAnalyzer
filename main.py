@@ -24,6 +24,8 @@ from langchain_openai import AzureOpenAIEmbeddings, AzureChatOpenAI
 from langchain_chroma import Chroma
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage
+from langchain_community.document_loaders import TextLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -33,6 +35,29 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 app = FastAPI()
+
+# Initialize Chroma database
+def initialize_chroma_db():
+    CHROMA_PATH = "chroma_1753881695"
+    DATA_PATH = "ai_visibility_score_documentation.md"
+    if not os.path.exists(CHROMA_PATH):
+        logger.info("Initializing Chroma DB")
+        try:
+            embedding_function = AzureOpenAIEmbeddings(
+                azure_deployment=os.getenv("AZURE_OPENAI_API_EMBEDDING_DEPLOYMENT_NAME"),
+                openai_api_version=os.getenv("OPENAI_API_VERSION"),
+                azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+                api_key=os.getenv("AZURE_OPENAI_KEY")
+            )
+            loader = TextLoader(DATA_PATH)
+            docs = loader.load()
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            splits = text_splitter.split_documents(docs)
+            Chroma.from_documents(documents=splits, embedding=embedding_function, persist_directory=CHROMA_PATH)
+        except Exception as e:
+            logger.error(f"Failed to initialize Chroma DB: {str(e)}")
+
+initialize_chroma_db()
 
 # Debug and set correct path for frontend
 frontend_path = os.path.join(os.path.dirname(__file__), "frontend")
@@ -317,4 +342,5 @@ def crawlability_score(load_time, robots_blocked):
     return 0 if robots_blocked else max(1.0 - load_time / 10, 0.5)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    port = int(os.getenv("PORT", 8001))
+    uvicorn.run(app, host="0.0.0.0", port=port)

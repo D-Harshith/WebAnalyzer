@@ -3,6 +3,7 @@ __pycache__
 *.pyo
 *.pyd
 .Python
-env/
+.env
 venv/
 backend/.env
+chroma_1753881695/
