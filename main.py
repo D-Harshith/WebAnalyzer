@@ -1,4 +1,3 @@
-
 import asyncio
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,8 +39,24 @@ logger.info(f"Starting application on port: {port}")
 
 app = FastAPI()
 
-# Initialize Chroma database
-def initialize_chroma_db():
+# Debug and set correct path for frontend
+frontend_path = os.path.join(os.path.dirname(__file__), "frontend")
+logger.debug(f"Frontend path: {frontend_path}, exists: {os.path.exists(frontend_path)}")
+
+# Mount frontend static files at /static
+app.mount("/static", StaticFiles(directory=frontend_path, html=True), name="static")
+
+# Serve index.html at the root path
+try:
+    with open(os.path.join(frontend_path, "index.html")) as f:
+        index_html = f.read()
+    logger.info("Frontend index.html loaded successfully")
+except Exception as e:
+    logger.error(f"Failed to load index.html: {str(e)}")
+    index_html = "<h1>Error: Frontend not found</h1>"
+
+# Initialize Chroma database as a background task
+async def initialize_chroma_db():
     CHROMA_PATH = "chroma_1753881695"
     DATA_PATH = "ai_visibility_score_documentation.md"
     if not os.path.exists(CHROMA_PATH):
@@ -62,18 +77,11 @@ def initialize_chroma_db():
         except Exception as e:
             logger.error(f"Failed to initialize Chroma DB: {str(e)}")
 
-initialize_chroma_db()
-
-# Debug and set correct path for frontend
-frontend_path = os.path.join(os.path.dirname(__file__), "frontend")
-logger.debug(f"Frontend path: {frontend_path}, exists: {os.path.exists(frontend_path)}")
-
-# Mount frontend static files at /static
-app.mount("/static", StaticFiles(directory=frontend_path, html=True), name="static")
-
-# Serve index.html at the root path
-with open(os.path.join(frontend_path, "index.html")) as f:
-    index_html = f.read()
+# Run Chroma DB initialization after server startup
+@app.on_event("startup")
+async def startup_event():
+    logger.info("FastAPI startup event triggered")
+    asyncio.create_task(initialize_chroma_db())
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
