@@ -12,6 +12,7 @@ import base64
 import os
 import re
 import subprocess
+import aiohttp
 from urllib.parse import urljoin, urlparse
 from dotenv import load_dotenv
 
@@ -247,7 +248,8 @@ async def fetch_html(url):
                     logger.info("Firefox browser installed successfully")
                 except subprocess.CalledProcessError as e:
                     logger.error(f"Failed to install Firefox browser: {str(e)}")
-                    raise PlaywrightError(f"Failed to install Firefox browser: {str(e)}")
+                    logger.info(f"Falling back to aiohttp for URL: {url}")
+                    return await fetch_html_fallback(url)
             
             browser = await p.firefox.launch(headless=True)
             context = await browser.new_context(
@@ -271,12 +273,32 @@ async def fetch_html(url):
             viewport = await page.evaluate('() => document.querySelector("meta[name=viewport]")?.content')
             await browser.close()
             logger.info(f"Successfully fetched URL: {url}, HTML length: {len(html)}")
-            return html, load_time, robots_blocked, bool(viewpoint), screenshot_b64
+            return html, load_time, robots_blocked, bool(viewport), screenshot_b64
     except PlaywrightError as e:
         logger.error(f"Playwright error fetching URL {url}: {str(e)}")
-        return None, None, True, False, None
+        logger.info(f"Falling back to aiohttp for URL: {url}")
+        return await fetch_html_fallback(url)
     except Exception as e:
         logger.error(f"Unexpected error fetching URL {url}: {str(e)}", exc_info=True)
+        logger.info(f"Falling back to aiohttp for URL: {url}")
+        return await fetch_html_fallback(url)
+
+async def fetch_html_fallback(url):
+    """Fallback method to fetch HTML using aiohttp."""
+    try:
+        logger.info(f"Fetching HTML with aiohttp for URL: {url}")
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=30, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Gecko/20100101 Firefox/115.0"
+            }) as response:
+                if response.status >= 400:
+                    logger.error(f"Failed to fetch URL {url} with aiohttp, status: {response.status}")
+                    return None, None, True, False, None
+                html = await response.text()
+                logger.info(f"Successfully fetched HTML with aiohttp for URL: {url}, length: {len(html)}")
+                return html, 7.0, False, True, None  # No screenshot in fallback
+    except Exception as e:
+        logger.error(f"Failed to fetch URL {url} with aiohttp: {str(e)}")
         return None, None, True, False, None
 
 def extract_visible_text(html, url):
