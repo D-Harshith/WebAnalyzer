@@ -11,7 +11,6 @@ import spacy
 from textstat import flesch_reading_ease as FRE
 import extruct
 from w3lib.html import get_base_url
-import re
 from urllib.parse import urljoin, urlparse
 from sentence_transformers import SentenceTransformer, util
 import numpy as np
@@ -23,57 +22,51 @@ from langchain_openai import AzureOpenAIEmbeddings, AzureChatOpenAI
 from langchain_chroma import Chroma
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage
-from langchain_community.document_loaders import TextLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 # Set up logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
 
-# Log the PORT environment variable
-port = int(os.getenv("PORT", 10000))  # Convert to int, default to 10000
+# Get port
+port = int(os.getenv("PORT", 10000))
 logger.info(f"Starting application on port: {port}")
 
 app = FastAPI()
 
-# Debug and set correct path for frontend
+# Mount frontend static files
 frontend_path = os.path.join(os.path.dirname(__file__), "frontend")
-logger.debug(f"Frontend path: {frontend_path}, exists: {os.path.exists(frontend_path)}")
-
-# Mount frontend static files at /static
 app.mount("/static", StaticFiles(directory=frontend_path, html=True), name="static")
 
-# Serve index.html at the root path
+# Serve index.html
 try:
     with open(os.path.join(frontend_path, "index.html")) as f:
         index_html = f.read()
-    logger.info("Frontend index.html loaded successfully")
+    logger.info("Frontend index.html loaded")
 except Exception as e:
     logger.error(f"Failed to load index.html: {str(e)}")
     index_html = "<h1>Error: Frontend not found</h1>"
 
-# Check Chroma database existence
-async def initialize_chroma_db():
+# Check Chroma database
+async def check_chroma_db():
     CHROMA_PATH = "chroma_1753881695"
     if not os.path.exists(CHROMA_PATH):
-        logger.error("Chroma DB does not exist, please pre-build it")
+        logger.error("Chroma DB not found")
     else:
-        logger.info("Chroma DB found, skipping initialization")
+        logger.info("Chroma DB found")
 
-# Run Chroma DB check after server startup
 @app.on_event("startup")
 async def startup_event():
-    logger.info("FastAPI startup event triggered")
-    asyncio.create_task(initialize_chroma_db())
+    logger.info("FastAPI startup")
+    asyncio.create_task(check_chroma_db())
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     return index_html
 
-# Allow CORS for frontend
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -96,8 +89,6 @@ async def analyze_url(input: URLInput):
         if not html:
             logger.error("Failed to fetch HTML")
             raise HTTPException(status_code=500, detail="Failed to fetch URL")
-        
-        logger.debug(f"HTML fetched successfully, length: {len(html)}")
         
         visible_text, total_text, soup, word_count = extract_visible_text(html, input.url)
         sem_score = semantic_tags_score(soup)
@@ -171,7 +162,7 @@ async def chat_with_bot(input: ChatInput):
         if not embedding_function:
             if "readability" in query.lower() and scores.get("Readability Score"):
                 return {"response": f"The readability score for your website is {scores['Readability Score']}%. This score reflects how easily your content is understood. Would you like tips to improve it?"}
-            return {"response": "I'm sorry, I need Azure OpenAI credentials to process your request fully. Please provide a query related to readability for a basic response."}
+            return {"response": "Azure OpenAI credentials missing. Please provide a readability-related query for a basic response."}
 
         CHROMA_PATH = "chroma_1753881695"
         db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
