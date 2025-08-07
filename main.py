@@ -22,6 +22,7 @@ from langchain_openai import AzureOpenAIEmbeddings, AzureChatOpenAI
 from langchain_chroma import Chroma
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage
+import re
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -82,10 +83,27 @@ class ChatInput(BaseModel):
     query: str
     scores: dict = None
 
+def validate_url(url: str) -> bool:
+    """Validate URL format and scheme."""
+    regex = re.compile(
+        r'^https?://'  # http:// or https://
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain
+        r'localhost|'  # localhost
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # IP
+        r'(?::\d+)?'  # optional port
+        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+    return re.match(regex, url) is not None
+
 @app.post("/api/analyze")
 async def analyze_url(input: URLInput):
     try:
-        logger.info(f"Analyzing URL: {input.url}")
+        logger.info(f"Starting analysis for URL: {input.url}")
+        # Validate URL
+        if not validate_url(input.url):
+            logger.error(f"Invalid URL format: {input.url}")
+            raise HTTPException(status_code=400, detail="Invalid URL format")
+
+        # Fetch HTML
         html, load_time, robots_blocked, mobile_optimized, screenshot = await fetch_html(input.url)
         if not html:
             logger.error(f"Failed to fetch HTML for URL: {input.url}")
@@ -93,7 +111,10 @@ async def analyze_url(input: URLInput):
         
         logger.info(f"HTML fetched, length: {len(html)}")
         
+        # Process HTML
         visible_text, total_text, soup, word_count = extract_visible_text(html, input.url)
+        logger.info(f"Extracted visible text, word count: {word_count}")
+        
         sem_score = semantic_tags_score(soup)
         read_score = readability_score(visible_text)
         meta_score = meta_tag_score(soup)
@@ -147,6 +168,8 @@ async def analyze_url(input: URLInput):
 
         logger.info(f"Analysis complete for URL: {input.url}, Final Score: {final_score}")
         return {"scores": scores, "screenshot": screenshot}
+    except HTTPException as e:
+        raise e
     except Exception as e:
         logger.error(f"Error analyzing URL {input.url}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to analyze URL: {str(e)}")
@@ -156,6 +179,7 @@ async def chat_with_bot(input: ChatInput):
     query = input.query
     scores = input.scores or {}
     try:
+        logger.info(f"Processing chat query: {query}")
         embedding_function = AzureOpenAIEmbeddings(
             azure_deployment=os.getenv("AZURE_OPENAI_API_EMBEDDING_DEPLOYMENT_NAME"),
             openai_api_version=os.getenv("OPENAI_API_VERSION"),
@@ -164,6 +188,7 @@ async def chat_with_bot(input: ChatInput):
         ) if all(os.getenv(k) for k in ["AZURE_OPENAI_API_EMBEDDING_DEPLOYMENT_NAME", "OPENAI_API_VERSION", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_KEY"]) else None
 
         if not embedding_function:
+            logger.warning("Azure OpenAI credentials missing")
             if "readability" in query.lower() and scores.get("Readability Score"):
                 return {"response": f"The readability score for your website is {scores['Readability Score']}%. This score reflects how easily your content is understood. Would you like tips to improve it?"}
             return {"response": "Azure OpenAI credentials missing. Please provide a readability-related query for a basic response."}
@@ -172,6 +197,7 @@ async def chat_with_bot(input: ChatInput):
         db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
         docs = db.similarity_search(query, k=3)
         if not docs:
+            logger.info("No relevant documents found in Chroma DB")
             return {"response": "No relevant information found in the database."}
 
         context_text = "\n\n---\n\n".join([doc.page_content for doc in docs])
@@ -200,14 +226,15 @@ async def chat_with_bot(input: ChatInput):
         )
         messages = [HumanMessage(content=prompt)]
         response = model.invoke(messages)
+        logger.info("Chat response generated successfully")
         return {"response": response.content}
     except Exception as e:
-        logger.error(f"Error in chat endpoint: {str(e)}")
+        logger.error(f"Error in chat endpoint: {str(e)}", exc_info=True)
         return {"response": f"Error occurred: {str(e)}"}
 
 async def fetch_html(url):
     try:
-        logger.info(f"Fetching URL: {url}")
+        logger.info(f"Initializing Playwright for URL: {url}")
         async with async_playwright() as p:
             browser = await p.firefox.launch(headless=True)
             context = await browser.new_context(
@@ -215,19 +242,22 @@ async def fetch_html(url):
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Gecko/20100101 Firefox/115.0"
             )
             page = await context.new_page()
+            logger.info(f"Navigating to URL: {url}")
             response = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
             if not response or response.status >= 400:
                 logger.error(f"Failed to load URL {url}, status: {response.status if response else 'No response'}")
                 raise PlaywrightError(f"Failed to load URL, status: {response.status if response else 'No response'}")
+            logger.info(f"Waiting for page to render: {url}")
             await page.wait_for_timeout(5000)
             html = await page.content()
+            logger.info(f"Capturing screenshot for: {url}")
             screenshot = await page.screenshot(full_page=True)
             screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
             load_time = 7.0
             robots_blocked = False
             viewport = await page.evaluate('() => document.querySelector("meta[name=viewport]")?.content')
             await browser.close()
-            logger.info(f"Successfully fetched URL: {url}")
+            logger.info(f"Successfully fetched URL: {url}, HTML length: {len(html)}")
             return html, load_time, robots_blocked, bool(viewport), screenshot_b64
     except PlaywrightError as e:
         logger.error(f"Playwright error fetching URL {url}: {str(e)}")
