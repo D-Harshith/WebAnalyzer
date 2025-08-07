@@ -237,6 +237,12 @@ async def fetch_html(url):
     try:
         logger.info(f"Initializing Playwright for URL: {url}")
         async with async_playwright() as p:
+            # Check if Firefox is installed
+            firefox_path = os.path.join(os.getenv("PLAYWRIGHT_BROWSERS_PATH", "/opt/render/.cache/ms-playwright"), "firefox")
+            if not os.path.exists(firefox_path):
+                logger.error(f"Firefox browser not found at {firefox_path}. Ensure 'playwright install firefox' is run during build.")
+                raise PlaywrightError("Firefox browser not installed. Run 'playwright install firefox' during build.")
+            
             browser = await p.firefox.launch(headless=True)
             context = await browser.new_context(
                 viewport={"width": 1280, "height": 720},
@@ -344,4 +350,4 @@ def crawlability_score(load_time, robots_blocked):
     return 0 if robots_blocked else max(1.0 - load_time / 10, 0.5)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=port, timeout_keep_alive=60)
+    uvicorn.run(app, host="0.0.0.0", port=port, timeout_keep_alive=60, workers=1)
