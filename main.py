@@ -85,10 +85,13 @@ class ChatInput(BaseModel):
 @app.post("/api/analyze")
 async def analyze_url(input: URLInput):
     try:
+        logger.info(f"Analyzing URL: {input.url}")
         html, load_time, robots_blocked, mobile_optimized, screenshot = await fetch_html(input.url)
         if not html:
-            logger.error("Failed to fetch HTML")
-            raise HTTPException(status_code=500, detail="Failed to fetch URL")
+            logger.error(f"Failed to fetch HTML for URL: {input.url}")
+            raise HTTPException(status_code=500, detail=f"Failed to fetch URL: {input.url}")
+        
+        logger.info(f"HTML fetched, length: {len(html)}")
         
         visible_text, total_text, soup, word_count = extract_visible_text(html, input.url)
         sem_score = semantic_tags_score(soup)
@@ -142,10 +145,11 @@ async def analyze_url(input: URLInput):
             "Final AI Visibility Score": round(final_score, 2)
         }
 
+        logger.info(f"Analysis complete for URL: {input.url}, Final Score: {final_score}")
         return {"scores": scores, "screenshot": screenshot}
     except Exception as e:
-        logger.error(f"Error in analyze_url: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Error analyzing URL {input.url}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to analyze URL: {str(e)}")
 
 @app.post("/api/chat")
 async def chat_with_bot(input: ChatInput):
@@ -203,6 +207,7 @@ async def chat_with_bot(input: ChatInput):
 
 async def fetch_html(url):
     try:
+        logger.info(f"Fetching URL: {url}")
         async with async_playwright() as p:
             browser = await p.firefox.launch(headless=True)
             context = await browser.new_context(
@@ -210,8 +215,11 @@ async def fetch_html(url):
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Gecko/20100101 Firefox/115.0"
             )
             page = await context.new_page()
-            await page.goto(url, wait_until="domcontentloaded", timeout=80000)
-            await page.wait_for_timeout(7000)
+            response = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            if not response or response.status >= 400:
+                logger.error(f"Failed to load URL {url}, status: {response.status if response else 'No response'}")
+                raise PlaywrightError(f"Failed to load URL, status: {response.status if response else 'No response'}")
+            await page.wait_for_timeout(5000)
             html = await page.content()
             screenshot = await page.screenshot(full_page=True)
             screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
@@ -219,9 +227,13 @@ async def fetch_html(url):
             robots_blocked = False
             viewport = await page.evaluate('() => document.querySelector("meta[name=viewport]")?.content')
             await browser.close()
+            logger.info(f"Successfully fetched URL: {url}")
             return html, load_time, robots_blocked, bool(viewport), screenshot_b64
     except PlaywrightError as e:
         logger.error(f"Playwright error fetching URL {url}: {str(e)}")
+        return None, None, True, False, None
+    except Exception as e:
+        logger.error(f"Unexpected error fetching URL {url}: {str(e)}", exc_info=True)
         return None, None, True, False, None
 
 def extract_visible_text(html, url):
