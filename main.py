@@ -7,22 +7,12 @@ from pydantic import BaseModel
 from playwright.async_api import async_playwright, Error as PlaywrightError
 from bs4 import BeautifulSoup
 import uvicorn
-import spacy
-from textstat import flesch_reading_ease as FRE
-import extruct
-from w3lib.html import get_base_url
-from urllib.parse import urljoin, urlparse
-from sentence_transformers import SentenceTransformer, util
-import numpy as np
 import logging
 import base64
 import os
-from dotenv import load_dotenv
-from langchain_openai import AzureOpenAIEmbeddings, AzureChatOpenAI
-from langchain_chroma import Chroma
-from langchain.prompts import ChatPromptTemplate
-from langchain_core.messages import HumanMessage
 import re
+from urllib.parse import urljoin, urlparse
+from dotenv import load_dotenv
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -111,6 +101,14 @@ async def analyze_url(input: URLInput):
         
         logger.info(f"HTML fetched, length: {len(html)}")
         
+        # Import heavy dependencies only when needed
+        from textstat import flesch_reading_ease as FRE
+        import spacy
+        import extruct
+        from w3lib.html import get_base_url
+        from sentence_transformers import SentenceTransformer, util
+        import numpy as np
+
         # Process HTML
         visible_text, total_text, soup, word_count = extract_visible_text(html, input.url)
         logger.info(f"Extracted visible text, word count: {word_count}")
@@ -176,10 +174,13 @@ async def analyze_url(input: URLInput):
 
 @app.post("/api/chat")
 async def chat_with_bot(input: ChatInput):
-    query = input.query
-    scores = input.scores or {}
     try:
-        logger.info(f"Processing chat query: {query}")
+        logger.info(f"Processing chat query: {input.query}")
+        from langchain_openai import AzureOpenAIEmbeddings, AzureChatOpenAI
+        from langchain_chroma import Chroma
+        from langchain.prompts import ChatPromptTemplate
+        from langchain_core.messages import HumanMessage
+
         embedding_function = AzureOpenAIEmbeddings(
             azure_deployment=os.getenv("AZURE_OPENAI_API_EMBEDDING_DEPLOYMENT_NAME"),
             openai_api_version=os.getenv("OPENAI_API_VERSION"),
@@ -189,13 +190,13 @@ async def chat_with_bot(input: ChatInput):
 
         if not embedding_function:
             logger.warning("Azure OpenAI credentials missing")
-            if "readability" in query.lower() and scores.get("Readability Score"):
-                return {"response": f"The readability score for your website is {scores['Readability Score']}%. This score reflects how easily your content is understood. Would you like tips to improve it?"}
+            if "readability" in input.query.lower() and input.scores.get("Readability Score"):
+                return {"response": f"The readability score for your website is {input.scores['Readability Score']}%. This score reflects how easily your content is understood. Would you like tips to improve it?"}
             return {"response": "Azure OpenAI credentials missing. Please provide a readability-related query for a basic response."}
 
         CHROMA_PATH = "chroma_1753881695"
         db = Chroma(persist_directory=CHROMA_PATH, embedding_function=embedding_function)
-        docs = db.similarity_search(query, k=3)
+        docs = db.similarity_search(input.query, k=3)
         if not docs:
             logger.info("No relevant documents found in Chroma DB")
             return {"response": "No relevant information found in the database."}
@@ -214,8 +215,8 @@ async def chat_with_bot(input: ChatInput):
         """)
         prompt = prompt_template.format(
             context=context_text,
-            scores=f"Readability Score: {scores.get('Readability Score', 'N/A')}%",
-            question=query
+            scores=f"Readability Score: {input.scores.get('Readability Score', 'N/A')}%",
+            question=input.query
         )
 
         model = AzureChatOpenAI(
@@ -279,6 +280,8 @@ def semantic_tags_score(soup):
     return min(count / len(semantic_tags), 1.0)
 
 def readability_score(text):
+    from textstat import flesch_reading_ease as FRE
+    import spacy
     nlp = spacy.load("en_core_web_sm")
     doc = nlp(text)
     sentences = [sent.text for sent in doc.sents][:100]
@@ -290,6 +293,8 @@ def meta_tag_score(soup):
     return (1.0 if title else 0) + (1.0 if desc else 0) / 2
 
 def jsonld_score(html, base_url):
+    import extruct
+    from w3lib.html import get_base_url
     metadata = extruct.extract(html, base_url=base_url, syntaxes=['json-ld'])
     return 1.0 if metadata.get('json-ld') else 0
 
@@ -307,11 +312,14 @@ def heading_structure_score(soup):
     return score, heading_counts
 
 def entity_density_score(text):
+    import spacy
     nlp = spacy.load("en_core_web_sm")
     doc = nlp(text[:100000])
     return min(len(doc.ents) / len(doc), 1.0) if doc else 0
 
 def paragraph_coherence_score(text):
+    from sentence_transformers import SentenceTransformer, util
+    import numpy as np
     model = SentenceTransformer('all-MiniLM-L6-v2')
     paragraphs = [p for p in text.split('\n\n') if len(p.split()) > 10]
     if len(paragraphs) < 2:
