@@ -11,6 +11,7 @@ import logging
 import base64
 import os
 import re
+import subprocess
 from urllib.parse import urljoin, urlparse
 from dotenv import load_dotenv
 
@@ -237,11 +238,16 @@ async def fetch_html(url):
     try:
         logger.info(f"Initializing Playwright for URL: {url}")
         async with async_playwright() as p:
-            # Check if Firefox is installed
+            # Check if Firefox is installed, attempt to install if missing
             firefox_path = os.path.join(os.getenv("PLAYWRIGHT_BROWSERS_PATH", "/opt/render/.cache/ms-playwright"), "firefox")
             if not os.path.exists(firefox_path):
-                logger.error(f"Firefox browser not found at {firefox_path}. Ensure 'playwright install firefox' is run during build.")
-                raise PlaywrightError("Firefox browser not installed. Run 'playwright install firefox' during build.")
+                logger.info("Firefox browser not found, attempting to install...")
+                try:
+                    subprocess.run(["playwright", "install", "firefox"], check=True)
+                    logger.info("Firefox browser installed successfully")
+                except subprocess.CalledProcessError as e:
+                    logger.error(f"Failed to install Firefox browser: {str(e)}")
+                    raise PlaywrightError(f"Failed to install Firefox browser: {str(e)}")
             
             browser = await p.firefox.launch(headless=True)
             context = await browser.new_context(
@@ -265,7 +271,7 @@ async def fetch_html(url):
             viewport = await page.evaluate('() => document.querySelector("meta[name=viewport]")?.content')
             await browser.close()
             logger.info(f"Successfully fetched URL: {url}, HTML length: {len(html)}")
-            return html, load_time, robots_blocked, bool(viewport), screenshot_b64
+            return html, load_time, robots_blocked, bool(viewpoint), screenshot_b64
     except PlaywrightError as e:
         logger.error(f"Playwright error fetching URL {url}: {str(e)}")
         return None, None, True, False, None
