@@ -6,4 +6,3 @@ __pycache__
 .env
 venv/
 backend/.env
-chroma_1753881695/
