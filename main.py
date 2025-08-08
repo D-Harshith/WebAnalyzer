@@ -254,14 +254,22 @@ async def fetch_html(url):
             browser = await p.firefox.launch(headless=True)
             context = await browser.new_context(
                 viewport={"width": 1280, "height": 720},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Gecko/20100101 Firefox/115.0"
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:115.0) Gecko/20100101 Firefox/115.0"
             )
             page = await context.new_page()
             logger.info(f"Navigating to URL: {url}")
-            response = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            if not response or response.status >= 400:
-                logger.error(f"Failed to load URL {url}, status: {response.status if response else 'No response'}")
-                raise PlaywrightError(f"Failed to load URL, status: {response.status if response else 'No response'}")
+            for attempt in range(3):  # Retry up to 3 times
+                try:
+                    response = await page.goto(url, wait_until="domcontentloaded", timeout=60000)  # Increase timeout to 60s
+                    if not response or response.status >= 400:
+                        logger.error(f"Failed to load URL {url}, status: {response.status if response else 'No response'}")
+                        raise PlaywrightError(f"Failed to load URL, status: {response.status if response else 'No response'}")
+                    break
+                except PlaywrightError as e:
+                    logger.warning(f"Attempt {attempt + 1} failed for URL {url}: {str(e)}")
+                    if attempt == 2:
+                        raise e
+                    await asyncio.sleep(2)  # Wait before retry
             logger.info(f"Waiting for page to render: {url}")
             await page.wait_for_timeout(5000)
             html = await page.content()
@@ -287,10 +295,16 @@ async def fetch_html_fallback(url):
     """Fallback method to fetch HTML using aiohttp."""
     try:
         logger.info(f"Fetching HTML with aiohttp for URL: {url}")
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:115.0) Gecko/20100101 Firefox/115.0",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1"
+        }
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=30, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Gecko/20100101 Firefox/115.0"
-            }) as response:
+            async with session.get(url, timeout=30, headers=headers) as response:
                 if response.status >= 400:
                     logger.error(f"Failed to fetch URL {url} with aiohttp, status: {response.status}")
                     return None, None, True, False, None
