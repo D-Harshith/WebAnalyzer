@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from playwright.async_api import async_playwright, Error as PlaywrightError
+from playwright.async_api import async_playwright, PlaywrightError
 from bs4 import BeautifulSoup
 import uvicorn
 import logging
@@ -247,7 +247,6 @@ async def fetch_html(url):
                     logger.info("Firefox browser installed successfully")
                 except subprocess.CalledProcessError as e:
                     logger.error(f"Failed to install Firefox browser: {e}")
-                    logger.info(f"Falling back to aiohttp for URL: {url}")
                     return await fetch_html_fallback(url)
             else:
                 logger.info(f"Firefox browser found at: {firefox_path}")
@@ -255,44 +254,45 @@ async def fetch_html(url):
             logger.info("Launching Firefox browser...")
             browser = await p.firefox.launch(headless=True)
             logger.info("Browser launched successfully")
+            
             context = await browser.new_context(
                 viewport={"width": 1280, "height": 720},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:115.0) Gecko/20100101 Firefox/115.0"
             )
             page = await context.new_page()
+            
             logger.info(f"Navigating to URL: {url}")
-            for attempt in range(3):
-                try:
-                    response = await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                    if not response or response.status >= 400:
-                        logger.error(f"Failed to load URL {url}, status: {response.status if response else 'No response'}")
-                        raise PlaywrightError(f"Failed to load URL, status: {response.status if response else 'No response'}")
-                    break
-                except PlaywrightError as e:
-                    logger.warning(f"Attempt {attempt + 1} failed for URL {url}: {str(e)}")
-                    if attempt == 2:
-                        raise
-                    await asyncio.sleep(2)
+            try:
+                response = await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                if not response or response.status >= 400:
+                    logger.error(f"Failed to load URL {url}, status: {response.status if response else 'No response'}")
+                    raise PlaywrightError(f"Failed to load URL, status: {response.status if response else 'No response'}")
+            except PlaywrightError as e:
+                logger.error(f"Error navigating to URL {url}: {str(e)}")
+                raise
+            
             logger.info(f"Waiting for page to render: {url}")
             await page.wait_for_timeout(5000)
             html = await page.content()
+            
             logger.info(f"Capturing screenshot for: {url}")
             screenshot = await page.screenshot(full_page=True)
             screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
+            
             load_time = 7.0  # Placeholder; consider measuring actual time
             robots_blocked = False  # Adjust if robots.txt check is added
             viewport = await page.evaluate('() => document.querySelector("meta[name=viewport]")?.content')
+            
             await browser.close()
             logger.info(f"Successfully fetched URL: {url}, HTML length: {len(html)}")
             return html, load_time, robots_blocked, bool(viewport), screenshot_b64
     except PlaywrightError as e:
         logger.error(f"Playwright error fetching URL {url}: {str(e)}", exc_info=True)
-        logger.info(f"Falling back to aiohttp for URL: {url}")
         return await fetch_html_fallback(url)
     except Exception as e:
         logger.error(f"Unexpected error fetching URL {url}: {str(e)}", exc_info=True)
-        logger.info(f"Falling back to aiohttp for URL: {url}")
         return await fetch_html_fallback(url)
+
 async def fetch_html_fallback(url):
     """Fallback method to fetch HTML using aiohttp."""
     try:
