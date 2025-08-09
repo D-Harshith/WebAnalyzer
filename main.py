@@ -4,8 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from playwright.async_api import async_playwright
-from playwright import Error as PlaywrightError  # Updated import for PlaywrightError
+from playwright.async_api import async_playwright, TimeoutError  # Updated imports
 from bs4 import BeautifulSoup
 import uvicorn
 import logging
@@ -267,8 +266,11 @@ async def fetch_html(url):
                 response = await page.goto(url, wait_until="domcontentloaded", timeout=60000)
                 if not response or response.status >= 400:
                     logger.error(f"Failed to load URL {url}, status: {response.status if response else 'No response'}")
-                    raise PlaywrightError(f"Failed to load URL, status: {response.status if response else 'No response'}")
-            except PlaywrightError as e:
+                    raise Exception(f"Failed to load URL, status: {response.status if response else 'No response'}")
+            except TimeoutError as e:
+                logger.error(f"Timeout error navigating to URL {url}: {str(e)}")
+                raise
+            except Exception as e:
                 logger.error(f"Error navigating to URL {url}: {str(e)}")
                 raise
             
@@ -287,11 +289,8 @@ async def fetch_html(url):
             await browser.close()
             logger.info(f"Successfully fetched URL: {url}, HTML length: {len(html)}")
             return html, load_time, robots_blocked, bool(viewport), screenshot_b64
-    except PlaywrightError as e:
-        logger.error(f"Playwright error fetching URL {url}: {str(e)}", exc_info=True)
-        return await fetch_html_fallback(url)
     except Exception as e:
-        logger.error(f"Unexpected error fetching URL {url}: {str(e)}", exc_info=True)
+        logger.error(f"Error fetching URL {url}: {str(e)}", exc_info=True)
         return await fetch_html_fallback(url)
 
 async def fetch_html_fallback(url):
