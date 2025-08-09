@@ -4,7 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from playwright.async_api import async_playwright, PlaywrightError
+from playwright.async_api import async_playwright
+from playwright import Error as PlaywrightError  # Updated import for PlaywrightError
 from bs4 import BeautifulSoup
 import uvicorn
 import logging
