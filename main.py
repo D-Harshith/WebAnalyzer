@@ -243,56 +243,56 @@ async def fetch_html(url):
             if not os.path.exists(firefox_path):
                 logger.info("Firefox browser not found, attempting to install...")
                 try:
-                    subprocess.run(["playwright", "install", "firefox"], check=True)
+                    subprocess.run(["playwright", "install", "firefox"], check=True, timeout=300)
                     logger.info("Firefox browser installed successfully")
                 except subprocess.CalledProcessError as e:
-                    logger.error(f"Failed to install Firefox browser: {e}")
+                    logger.error(f"Failed to install Firefox browser: {str(e)}")
+                    logger.info(f"Falling back to aiohttp for URL: {url}")
                     return await fetch_html_fallback(url)
-            else:
-                logger.info(f"Firefox browser found at: {firefox_path}")
 
             logger.info("Launching Firefox browser...")
-            browser = await p.firefox.launch(headless=True)
-            logger.info("Browser launched successfully")
-            
-            context = await browser.new_context(
-                viewport={"width": 1280, "height": 720},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:115.0) Gecko/20100101 Firefox/115.0"
-            )
-            page = await context.new_page()
-            
-            logger.info(f"Navigating to URL: {url}")
+            browser = await p.firefox.launch(headless=True, timeout=30000)
             try:
-                response = await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                if not response or response.status >= 400:
-                    logger.error(f"Failed to load URL {url}, status: {response.status if response else 'No response'}")
-                    raise Exception(f"Failed to load URL, status: {response.status if response else 'No response'}")
-            except TimeoutError as e:
-                logger.error(f"Timeout error navigating to URL {url}: {str(e)}")
-                raise
-            except Exception as e:
-                logger.error(f"Error navigating to URL {url}: {str(e)}")
-                raise
-            
-            logger.info(f"Waiting for page to render: {url}")
-            await page.wait_for_timeout(5000)
-            html = await page.content()
-            
-            logger.info(f"Capturing screenshot for: {url}")
-            screenshot = await page.screenshot(full_page=True)
-            screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
-            
-            load_time = 7.0  # Placeholder; consider measuring actual time
-            robots_blocked = False  # Adjust if robots.txt check is added
-            viewport = await page.evaluate('() => document.querySelector("meta[name=viewport]")?.content')
-            
-            await browser.close()
-            logger.info(f"Successfully fetched URL: {url}, HTML length: {len(html)}")
-            return html, load_time, robots_blocked, bool(viewport), screenshot_b64
+                context = await browser.new_context(
+                    viewport={"width": 1280, "height": 720},
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:115.0) Gecko/20100101 Firefox/115.0"
+                )
+                page = await context.new_page()
+                logger.info(f"Navigating to URL: {url}")
+                for attempt in range(3):
+                    try:
+                        response = await page.goto(url, wait_until="networkidle", timeout=60000)
+                        if not response or response.status >= 400:
+                            logger.error(f"Failed to load URL {url}, status: {response.status if response else 'No response'}")
+                            raise Exception(f"Failed to load URL, status: {response.status if response else 'No response'}")
+                        break
+                    except TimeoutError as e:
+                        logger.warning(f"Attempt {attempt + 1} timed out for URL {url}: {str(e)}")
+                        if attempt == 2:
+                            raise
+                        await asyncio.sleep(2)
+                    except Exception as e:
+                        logger.warning(f"Attempt {attempt + 1} failed for URL {url}: {str(e)}")
+                        if attempt == 2:
+                            raise
+                        await asyncio.sleep(2)
+
+                await page.wait_for_load_state("networkidle", timeout=30000)
+                html = await page.content()
+                logger.info(f"Capturing screenshot for: {url}")
+                screenshot = await page.screenshot(full_page=True)
+                screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
+                load_time = 7.0
+                robots_blocked = False
+                viewport = await page.evaluate('() => document.querySelector("meta[name=viewport]")?.content')
+                return html, load_time, robots_blocked, bool(viewport), screenshot_b64
+            finally:
+                await browser.close()
     except Exception as e:
         logger.error(f"Error fetching URL {url}: {str(e)}", exc_info=True)
+        logger.info(f"Falling back to aiohttp for URL: {url}")
         return await fetch_html_fallback(url)
-
+    
 async def fetch_html_fallback(url):
     """Fallback method to fetch HTML using aiohttp."""
     try:
