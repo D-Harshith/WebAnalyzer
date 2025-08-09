@@ -626,7 +626,7 @@ async def chat_with_bot(input: ChatInput):
         return {"response": response.content}
     except Exception as e:
         logger.error(f"Error in chat endpoint: {str(e)}", exc_info=True)
-        return {"response": f"Error occurred: {str(e)}")
+        return {"response": f"Error occurred: {str(e)}"}
 
 async def fetch_html(url):
     try:
