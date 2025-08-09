@@ -1,7 +1,7 @@
 # Use Python 3.11 as the base image
 FROM python:3.11.5
 
-# Install system dependencies required by Playwright
+# Install system dependencies required by Playwright (expanded list)
 RUN apt-get update && apt-get install -y \
     libnss3 \
     libatk1.0-0 \
@@ -21,6 +21,15 @@ RUN apt-get update && apt-get install -y \
     libxcursor1 \
     libgtk-3-0 \
     libgdk-pixbuf2.0-0 \
+    libxrender1 \
+    libxtst6 \
+    libdbus-1-3 \
+    libfontconfig1 \
+    libxshmfence1 \
+    libgl1 \
+    libegl1 \
+    libopengl0 \
+    libgles2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory inside the container
@@ -46,5 +55,5 @@ ENV PORT=10000
 # Expose the port Render will use
 EXPOSE $PORT
 
-# Run the FastAPI application with Uvicorn using shell form
+# Run the FastAPI application with Uvicorn
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port $PORT --timeout-keep-alive 60 --workers 1"]
