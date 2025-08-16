@@ -46,7 +46,12 @@ async function analyzeUrl() {
         }
 
         // Update screenshot
-        screenshot.src = `data:image/png;base64,${data.screenshot}`;
+        if (data.screenshot) {
+            screenshot.src = `data:image/png;base64,${data.screenshot}`;
+        } else {
+            screenshot.src = '';
+            screenshot.alt = 'Screenshot not available (fallback mode used)';
+        }
 
         results.classList.remove('hidden');
     } catch (error) {
