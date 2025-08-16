@@ -190,18 +190,6 @@ async def fetch_html(url):
                     if response and response.status >= 400:
                         logger.error(f"Failed to load URL, status: {response.status if response else 'No response'}")
                         break
-                    except TimeoutError as e:
-                        logger.warning(f"Attempt {attempt + 1} timed out for URL {url}: {str(e)}")
-                        if attempt == 2:
-                            raise
-                        await asyncio.sleep(2 ** attempt)  # Exponential backoff
-                    except Exception as e:
-                        logger.warning(f"Attempt {attempt + 1} failed for URL {url}: {str(e)}")
-                        if attempt == 2:
-                            raise
-                        await asyncio.sleep(2 ** attempt)
-
-                    logger.info(f"Waiting for page to load: {url}")
                     await page.wait_for_load_state("networkidle", timeout=30000)
                     html = await page.content()
                     logger.info(f"Capturing screenshot for: {url}")
@@ -211,6 +199,16 @@ async def fetch_html(url):
                     robots_blocked = False  # Adjust if robots.txt check is added
                     viewport = await page.evaluate('() => document.querySelector("meta[name=viewport]")?.content')
                     return html, load_time, robots_blocked, bool(viewport), screenshot_b64
+                except TimeoutError as e:
+                    logger.warning(f"Attempt {attempt + 1} timed out for URL {url}: {str(e)}")
+                    if attempt == 2:
+                        raise
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                except Exception as e:
+                    logger.warning(f"Attempt {attempt + 1} failed for URL {url}: {str(e)}")
+                    if attempt == 2:
+                        raise
+                    await asyncio.sleep(2 ** attempt)
                 finally:
                     logger.info(f"Closing browser for URL: {url}")
                     await browser.close()
