@@ -18,6 +18,9 @@ from langchain_community.vectorstores import Chroma
 from langchain_openai import AzureOpenAIEmbeddings, AzureChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage
+import time
+from io import BytesIO
+from PIL import Image, ImageDraw
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -198,29 +201,35 @@ async def fetch_html(url):
                     logger.info(f"Capturing screenshot for: {url}")
                     screenshot = await page.screenshot(full_page=True, timeout=30000)
                     screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
-                    load_time = await measure_load_time(page)  # Custom function to measure time
-                    robots_blocked = False
+                    load_time = 7.0  # Placeholder; consider measuring actual time
+                    robots_blocked = False  # Adjust if robots.txt check is added
                     viewport = await page.evaluate('() => document.querySelector("meta[name=viewport]")?.content')
-                    await browser.close()
                     return html, load_time, robots_blocked, bool(viewport), screenshot_b64
                 except TimeoutError as e:
                     logger.warning(f"Attempt {attempt + 1} timed out for URL {url}: {str(e)}")
                     if attempt == 2:
                         raise
-                    await asyncio.sleep(2 ** attempt)
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
                 except Exception as e:
-                    logger.error(f"Attempt {attempt + 1} failed for URL {url}: {str(e)}", exc_info=True)
+                    logger.warning(f"Attempt {attempt + 1} failed for URL {url}: {str(e)}")
                     if attempt == 2:
                         raise
                     await asyncio.sleep(2 ** attempt)
+                finally:
+                    logger.info(f"Closing browser for URL: {url}")
+                    await browser.close()
     except Exception as e:
         logger.error(f"Error fetching URL {url}: {str(e)}", exc_info=True)
-        return await fetch_html_fallback(url)
-
-async def measure_load_time(page):
-    start_time = time.time()
-    await page.wait_for_load_state("networkidle")
-    return time.time() - start_time
+        logger.info(f"Falling back to aiohttp for URL: {url}")
+        html, load_time, robots_blocked, mobile_optimized = await fetch_html_fallback(url)
+        # Generate placeholder screenshot
+        img = Image.new('RGB', (1280, 720), color = 'grey')
+        d = ImageDraw.Draw(img)
+        d.text((10,10), "Screenshot not available", fill=(255,255,0))
+        buffered = BytesIO()
+        img.save(buffered, format="PNG")
+        screenshot_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+        return html, load_time, robots_blocked, mobile_optimized, screenshot_b64
 
 async def fetch_html_fallback(url):
     """Fallback method to fetch HTML using aiohttp."""
@@ -238,13 +247,13 @@ async def fetch_html_fallback(url):
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=30), headers=headers) as response:
                 if response.status >= 400:
                     logger.error(f"Failed to fetch URL {url} with aiohttp, status: {response.status}")
-                    return None, None, True, False, None
+                    return None, None, True, False
                 html = await response.text()
                 logger.info(f"Successfully fetched HTML with aiohttp for URL: {url}, length: {len(html)}")
-                return html, 7.0, False, True, None
+                return html, 7.0, False, True
     except Exception as e:
         logger.error(f"Failed to fetch URL {url} with aiohttp: {str(e)}")
-        return None, None, True, False, None
+        return None, None, True, False
 
 def extract_visible_text(html, url):
     soup = BeautifulSoup(html, "html.parser")

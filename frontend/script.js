@@ -46,11 +46,11 @@ async function analyzeUrl() {
         }
 
         // Update screenshot
-        if (data.screenshot) {
+        if (data.screenshot && data.screenshot.length > 0) {
             screenshot.src = `data:image/png;base64,${data.screenshot}`;
         } else {
-            screenshot.src = '';
-            screenshot.alt = 'Screenshot not available (fallback mode used)';
+            screenshot.src = 'https://via.placeholder.com/1280x720?text=Screenshot+Not+Available';
+            screenshot.alt = 'Screenshot not available';
         }
 
         results.classList.remove('hidden');
