@@ -40,6 +40,6 @@ RUN apt-get update && apt-get install -y \
 RUN pip install playwright && playwright install --with-deps chromium
 
 COPY . .
-COPY .env .env  
+# COPY .env .env  
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000", "--timeout-keep-alive", "60", "--workers", "1"]
