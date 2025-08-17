@@ -11,10 +11,13 @@ import logging
 import base64
 import os
 import re
-import subprocess
 import aiohttp
 from urllib.parse import urljoin, urlparse
 from dotenv import load_dotenv
+from langchain_community.vectorstores import Chroma
+from langchain_openai import AzureOpenAIEmbeddings, AzureChatOpenAI
+from langchain.prompts import ChatPromptTemplate
+from langchain_core.messages import HumanMessage
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -180,10 +183,10 @@ async def fetch_html(url):
             for attempt in range(3):
                 try:
                     logger.info(f"Launching browser for URL: {url}, attempt {attempt + 1}")
-                    browser = await playwright.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox'])
+                    browser = await playwright.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu'])
                     context = await browser.new_context(
                         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                        viewport={"width": 1920, "height": 1080}
+                        viewport={"width": 1280, "height": 720}
                     )
                     page = await context.new_page()
                     response = await page.goto(url, wait_until="networkidle", timeout=30000)
@@ -195,27 +198,29 @@ async def fetch_html(url):
                     logger.info(f"Capturing screenshot for: {url}")
                     screenshot = await page.screenshot(full_page=True, timeout=30000)
                     screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
-                    load_time = 7.0  # Placeholder; consider measuring actual time
-                    robots_blocked = False  # Adjust if robots.txt check is added
+                    load_time = await measure_load_time(page)  # Custom function to measure time
+                    robots_blocked = False
                     viewport = await page.evaluate('() => document.querySelector("meta[name=viewport]")?.content')
+                    await browser.close()
                     return html, load_time, robots_blocked, bool(viewport), screenshot_b64
                 except TimeoutError as e:
                     logger.warning(f"Attempt {attempt + 1} timed out for URL {url}: {str(e)}")
                     if attempt == 2:
                         raise
-                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                    await asyncio.sleep(2 ** attempt)
                 except Exception as e:
-                    logger.warning(f"Attempt {attempt + 1} failed for URL {url}: {str(e)}")
+                    logger.error(f"Attempt {attempt + 1} failed for URL {url}: {str(e)}", exc_info=True)
                     if attempt == 2:
                         raise
                     await asyncio.sleep(2 ** attempt)
-                finally:
-                    logger.info(f"Closing browser for URL: {url}")
-                    await browser.close()
     except Exception as e:
         logger.error(f"Error fetching URL {url}: {str(e)}", exc_info=True)
-        logger.info(f"Falling back to aiohttp for URL: {url}")
         return await fetch_html_fallback(url)
+
+async def measure_load_time(page):
+    start_time = time.time()
+    await page.wait_for_load_state("networkidle")
+    return time.time() - start_time
 
 async def fetch_html_fallback(url):
     """Fallback method to fetch HTML using aiohttp."""
@@ -236,7 +241,7 @@ async def fetch_html_fallback(url):
                     return None, None, True, False, None
                 html = await response.text()
                 logger.info(f"Successfully fetched HTML with aiohttp for URL: {url}, length: {len(html)}")
-                return html, 7.0, False, True, None  # No screenshot in fallback
+                return html, 7.0, False, True, None
     except Exception as e:
         logger.error(f"Failed to fetch URL {url} with aiohttp: {str(e)}")
         return None, None, True, False, None
@@ -316,6 +321,83 @@ def content_length_score(word_count):
 
 def crawlability_score(load_time, robots_blocked):
     return 0 if robots_blocked else max(1.0 - load_time / 10, 0.5)
+
+@app.post("/api/chat")
+async def chat(input: ChatInput):
+    try:
+        query = input.query
+        scores = input.scores or {}
+
+        # Prepare the DB with Azure embeddings
+        embedding_function = AzureOpenAIEmbeddings(
+            azure_deployment=os.getenv("AZURE_OPENAI_API_EMBEDDING_DEPLOYMENT_NAME"),
+            openai_api_version=os.getenv("OPENAI_API_VERSION"),
+            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+            api_key=os.getenv("AZURE_OPENAI_KEY")
+        )
+        db = Chroma(persist_directory="chroma_1753881695", embedding_function=embedding_function)
+
+        # Search the DB
+        docs = db.similarity_search(query, k=3)
+        
+        if len(docs) == 0:
+            if scores:
+                for key in scores.keys():
+                    if key.lower() in query.lower():
+                        return {"response": f"The {key} is {scores[key]}%. It evaluates {get_score_description(key)}."}
+                return {"response": "No relevant information found in my training data. I can answer questions about your scores—try asking about a specific one!"}
+            return {"response": "No relevant information found. Please analyze a URL or ask about my trained data."}
+
+        # Prepare context
+        context_text = "\n\n---\n\n".join([doc.page_content for doc in docs])
+        prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
+        prompt = prompt_template.format(context=context_text, question=query)
+
+        # Use Azure ChatOpenAI
+        model = AzureChatOpenAI(
+            azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            openai_api_version=os.getenv("OPENAI_API_VERSION"),
+            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+            api_key=os.getenv("AZURE_OPENAI_KEY")
+        )
+
+        messages = [HumanMessage(content=prompt)]
+        response = model.invoke(messages)
+        response_text = response.content.strip()
+
+        return {"response": response_text}
+
+    except Exception as e:
+        logger.error(f"Error in chat endpoint: {str(e)}", exc_info=True)
+        return {"response": "Sorry, an error occurred while processing your request."}
+
+PROMPT_TEMPLATE = """
+Answer the question based only on the following context:
+
+{context}
+
+---
+
+Answer the question based on the above context: {question}
+"""
+
+def get_score_description(score_key):
+    descriptions = {
+        "Semantic Score": "the use of semantic HTML tags for structure",
+        "Readability Score": "text readability using the Flesch Reading Ease formula",
+        "Meta Tag Score": "the presence of title and description meta tags",
+        "JSON-LD Score": "the presence of JSON-LD structured data",
+        "Image ALT Score": "the percentage of images with alt text",
+        "Heading Structure Score": "the use of proper heading hierarchy (e.g., one H1)",
+        "Entity Density Score": "the density of named entities in the text",
+        "Paragraph Coherence Score": "the semantic similarity between paragraphs",
+        "Visibility Score": "the ratio of visible text to total HTML",
+        "Internal Link Score": "the proportion of internal links",
+        "Content Length Score": "the word count relative to 300 words",
+        "Crawlability Score": "page load time and robots.txt accessibility",
+        "Mobile Optimization Score": "the presence of a viewport meta tag",
+    }
+    return descriptions.get(score_key, "an aspect of website quality")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=port, timeout_keep_alive=60, workers=1)

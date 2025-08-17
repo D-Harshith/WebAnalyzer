@@ -1,7 +1,12 @@
-# Use Python 3.11 as the base image
 FROM python:3.11.5
 
-# Install system dependencies required by Playwright (expanded list)
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+RUN python -m spacy download en_core_web_sm
+
 RUN apt-get update && apt-get install -y \
     libnss3 \
     libatk1.0-0 \
@@ -32,28 +37,9 @@ RUN apt-get update && apt-get install -y \
     libgles2 \
     && rm -rf /var/lib/apt/lists/*
 
-# Set the working directory inside the container
-WORKDIR /app
+RUN pip install playwright && playwright install --with-deps chromium
 
-# Copy and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Install spaCy model
-RUN python -m spacy download en_core_web_sm
-
-# Install Playwright and Firefox browser
-RUN pip install playwright && playwright install firefox
-
-# Copy the rest of your application code
 COPY . .
+COPY .env .env  
 
-# Set environment variables
-ENV PLAYWRIGHT_BROWSERS_PATH=/app/.playwright-browsers
-ENV PORT=10000
-
-# Expose the port Render will use
-EXPOSE $PORT
-
-# Run the FastAPI application with Uvicorn
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port $PORT --timeout-keep-alive 60 --workers 1"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000", "--timeout-keep-alive", "60", "--workers", "1"]
