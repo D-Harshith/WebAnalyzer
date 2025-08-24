@@ -126,6 +126,7 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
 
 // Show video modal on page load
 window.addEventListener('load', () => {
+    console.log('Video modal triggered, videoModal element:', document.getElementById('videoModal'));
     document.getElementById('videoModal').style.display = 'flex';
     document.getElementById('modalOverlay').style.display = 'block';
 });
