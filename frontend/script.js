@@ -123,3 +123,15 @@ document.getElementById('chatInput').addEventListener('keypress', (e) => {
         sendChatQuery();
     }
 });
+
+// Show video modal on page load
+window.addEventListener('load', () => {
+    document.getElementById('videoModal').style.display = 'flex';
+    document.getElementById('modalOverlay').style.display = 'block';
+});
+
+function closeVideoModal() {
+    document.getElementById('videoModal').style.display = 'none';
+    document.getElementById('modalOverlay').style.display = 'none';
+    document.getElementById('introVideo').pause(); // Pause video on close
+}
