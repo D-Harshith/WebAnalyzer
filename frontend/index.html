@@ -1,15 +1,16 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Visibility Score</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='50' fill='url(%23grad)'/%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='0%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23000000'/%3E%3Cstop offset='100%25' stop-color='%231a2a44'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ctext x='50' y='60' font-family='Inter' font-size='40' fill='%2300ff00' text-anchor='middle'%3ELLMS%3C/text%3E%3Ccircle cx='50' cy='30' r='5' fill='%2300ff00'/%3E%3Ccircle cx='40' cy='40' r='5' fill='%2300ff00'/%3E%3Ccircle cx='60' cy='40' r='5' fill='%2300ff00'/%3E%3C/svg%3E">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <link href="/static/styles.css" rel="stylesheet">
 </head>
 <body class="flex flex-col items-center justify-center py-10">
+    <div class="overlay" id="modalOverlay"></div>
     <div class="text-center">
         <h1 class="text-4xl font-bold mb-2">AI Visibility Score</h1>
         <p class="text-lg text-gray-300 mb-6">Analyze your website's visibility for AI systems</p>
@@ -36,14 +37,7 @@
             <div class="gauge" id="scoreGauge">
                 <span id="finalScore">0</span>
             </div>
-            <h2 class="text-2xl font-semibold mt-4">AI Visibility Score</h2>
-            <button
-                id="learnMoreBtn"
-                class="mt-4 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-6 rounded-full transition"
-                onclick="openChatModal()"
-            >
-                Learn More
-            </button>
+            <span id="scoreMessage" class="text-2xl font-semibold mt-4">AI Visibility Score</span>
         </div>
         <div id="scoreDetails" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
         <div class="mt-8">
@@ -52,16 +46,10 @@
         </div>
     </div>
 
-    <div class="overlay" id="modalOverlay"></div>
     <div class="modal" id="chatModal">
         <div class="modal-header">
             <h3 class="text-xl font-semibold">Chat About Your Scores</h3>
-            <button
-                class="text-gray-300 hover:text-white"
-                onclick="closeChatModal()"
-            >
-                ✕
-            </button>
+            <button class="text-gray-300 hover:text-white" onclick="closeChatModal()">✕</button>
         </div>
         <div class="modal-content">
             <div class="chat-container" id="chatContainer"></div>
@@ -82,18 +70,9 @@
             </div>
         </div>
     </div>
-        <div id="videoModal" class="modal">
-        <div class="modal-header">
-            <span>Introductory Video</span>
-            <button onclick="closeVideoModal()">✕</button>
-        </div>
-        <div class="modal-content" style="display: flex; justify-content: center; align-items: center; padding: 1rem;">
-            <video id="introVideo" width="300" height="300" controls autoplay>
-                <source src="/static/AI visibility.mp4" type="video/mp4">
-                Your browser does not support the video tag.
-            </video>
-        </div>
-    </div>
+
+    <!-- Floating Chatbot Icon (CSS shape) -->
+    <div id="chatbotIcon" onclick="openChatModal()"></div>
 
     <script src="/static/script.js"></script>
 </body>

@@ -21,6 +21,7 @@ from langchain_core.messages import HumanMessage
 import time
 from io import BytesIO
 from PIL import Image, ImageDraw
+import spacy
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -81,27 +82,63 @@ class ChatInput(BaseModel):
     query: str
     scores: dict = None
 
+class MentionsInput(BaseModel):
+    url: str
+    topics: list[str] = ["relevant industry topics"]
+
 def validate_url(url: str) -> bool:
     """Validate URL format and scheme."""
     regex = re.compile(
-        r'^https?://'  # http:// or https://
-        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain
-        r'localhost|'  # localhost
-        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # IP
-        r'(?::\d+)?'  # optional port
+        r'^https?://'
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'
+        r'localhost|'
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'
+        r'(?::\d+)?'
         r'(?:/?|[/?]\S+)$', re.IGNORECASE)
     return re.match(regex, url) is not None
+
+async def check_robots_txt(url):
+    robots_url = urljoin(url, "/robots.txt")
+    async with aiohttp.ClientSession() as session:
+        async with session.get(robots_url) as response:
+            if response.status == 200:
+                text = await response.text()
+                if "GPTBot" in text or "Google-Extended" in text:
+                    return "Blocked"
+    return "Allowed"
+
+@app.post("/api/mentions")
+async def get_mentions(input: MentionsInput):
+    try:
+        domain = urlparse(input.url).netloc
+        model = AzureChatOpenAI(
+            azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            openai_api_version=os.getenv("OPENAI_API_VERSION"),
+            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+            api_key=os.getenv("AZURE_OPENAI_KEY")
+        )
+        mention_counts = {}
+        for topic in input.topics:
+            prompt = f"List the top 10 websites related to {topic}. Provide only the domain names."
+            messages = [HumanMessage(content=prompt)]
+            response = model.invoke(messages).content.strip()
+            count = response.lower().count(domain.lower())
+            mention_counts[topic] = count
+            await asyncio.sleep(1)
+        total_mentions = sum(mention_counts.values())
+        return {"mentions": mention_counts, "total": total_mentions}
+    except Exception as e:
+        logger.error(f"Error in mentions: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error calculating mentions")
 
 @app.post("/api/analyze")
 async def analyze_url(input: URLInput):
     try:
         logger.info(f"Starting analysis for URL: {input.url}")
-        # Validate URL
         if not validate_url(input.url):
             logger.error(f"Invalid URL format: {input.url}")
             raise HTTPException(status_code=400, detail="Invalid URL format")
 
-        # Fetch HTML
         html, load_time, robots_blocked, mobile_optimized, screenshot = await fetch_html(input.url)
         if not html:
             logger.error(f"Failed to fetch HTML for URL: {input.url}")
@@ -109,7 +146,6 @@ async def analyze_url(input: URLInput):
         
         logger.info(f"HTML fetched, length: {len(html)}")
         
-        # Import heavy dependencies only when needed
         from textstat import flesch_reading_ease as FRE
         import spacy
         import extruct
@@ -117,7 +153,6 @@ async def analyze_url(input: URLInput):
         from sentence_transformers import SentenceTransformer, util
         import numpy as np
 
-        # Process HTML
         visible_text, total_text, soup, word_count = extract_visible_text(html, input.url)
         logger.info(f"Extracted visible text, word count: {word_count}")
         
@@ -151,6 +186,8 @@ async def analyze_url(input: URLInput):
             mobile_score * 0.05
         ) * 100
 
+        total_heading_count = sum(heading_counts.values())  # Sum of H1, H2, H3, H4 counts
+
         scores = {
             "Semantic Score": round(sem_score * 100, 2),
             "Readability Score": round(read_score * 100, 2),
@@ -158,10 +195,7 @@ async def analyze_url(input: URLInput):
             "JSON-LD Score": round(jsonld * 100, 2),
             "Image ALT Score": round(img_score * 100, 2),
             "Heading Structure Score": round(heading_score * 100, 2),
-            "H1 Count": heading_counts.get("h1", 0),
-            "H2 Count": heading_counts.get("h2", 0),
-            "H3 Count": heading_counts.get("h3", 0),
-            "H4 Count": heading_counts.get("h4", 0),
+            "Total Heading Count": total_heading_count,
             "Entity Density Score": round(entity_score * 100, 2),
             "Paragraph Coherence Score": round(para_score * 100, 2),
             "Visibility Score": round(vis_score * 100, 2),
@@ -169,12 +203,28 @@ async def analyze_url(input: URLInput):
             "Content Length Score": round(content_score * 100, 2),
             "Crawlability Score": round(crawl_score * 100, 2),
             "Mobile Optimization Score": round(mobile_score * 100, 2),
+            "AI Crawler Access": await check_robots_txt(input.url),
             "Final AI Visibility Score": round(final_score, 2),
         }
 
+        nlp = spacy.load("en_core_web_sm")
+        doc = nlp(visible_text[:10000])
+        topics = list(set(ent.text for ent in doc.ents if ent.label_ in ["ORG", "PRODUCT", "EVENT"]))[:5] or ["general website"]
+        mentions_input = MentionsInput(url=input.url, topics=topics)
+        mentions = await get_mentions(mentions_input)
+
+        suggestions = ""
+        if final_score < 70:
+            chat_input = ChatInput(query="Suggest changes to boost AI visibility based on these scores: " + str(scores), scores=scores)
+            suggestions_response = await chat(chat_input)
+            suggestions = suggestions_response["response"]
+
         return {
             "scores": scores,
-            "screenshot": screenshot if screenshot else ""
+            "screenshot": screenshot if screenshot else "",
+            "mentions": mentions["mentions"],
+            "total_mentions": mentions["total"],
+            "suggestions": suggestions
         }
     except Exception as e:
         logger.error(f"Error in analysis: {str(e)}", exc_info=True)
@@ -201,15 +251,15 @@ async def fetch_html(url):
                     logger.info(f"Capturing screenshot for: {url}")
                     screenshot = await page.screenshot(full_page=True, timeout=30000)
                     screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
-                    load_time = 7.0  # Placeholder; consider measuring actual time
-                    robots_blocked = False  # Adjust if robots.txt check is added
+                    load_time = 7.0
+                    robots_blocked = False
                     viewport = await page.evaluate('() => document.querySelector("meta[name=viewport]")?.content')
                     return html, load_time, robots_blocked, bool(viewport), screenshot_b64
                 except TimeoutError as e:
                     logger.warning(f"Attempt {attempt + 1} timed out for URL {url}: {str(e)}")
                     if attempt == 2:
                         raise
-                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                    await asyncio.sleep(2 ** attempt)
                 except Exception as e:
                     logger.warning(f"Attempt {attempt + 1} failed for URL {url}: {str(e)}")
                     if attempt == 2:
@@ -222,7 +272,6 @@ async def fetch_html(url):
         logger.error(f"Error fetching URL {url}: {str(e)}", exc_info=True)
         logger.info(f"Falling back to aiohttp for URL: {url}")
         html, load_time, robots_blocked, mobile_optimized = await fetch_html_fallback(url)
-        # Generate placeholder screenshot
         img = Image.new('RGB', (1280, 720), color = 'grey')
         d = ImageDraw.Draw(img)
         d.text((10,10), "Screenshot not available", fill=(255,255,0))
@@ -337,7 +386,6 @@ async def chat(input: ChatInput):
         query = input.query
         scores = input.scores or {}
 
-        # Prepare the DB with Azure embeddings
         embedding_function = AzureOpenAIEmbeddings(
             azure_deployment=os.getenv("AZURE_OPENAI_API_EMBEDDING_DEPLOYMENT_NAME"),
             openai_api_version=os.getenv("OPENAI_API_VERSION"),
@@ -346,23 +394,20 @@ async def chat(input: ChatInput):
         )
         db = Chroma(persist_directory="chroma_1753881695", embedding_function=embedding_function)
 
-        # Search the DB
         docs = db.similarity_search(query, k=3)
         
         if len(docs) == 0:
             if scores:
                 for key in scores.keys():
                     if key.lower() in query.lower():
-                        return {"response": f"The {key} is {scores[key]}%. It evaluates {get_score_description(key)}."}
+                        return {"response": f"The {key} is {scores[key]}{'%' if isinstance(scores[key], (int, float)) else ''}. It evaluates {get_score_description(key)}."}
                 return {"response": "No relevant information found in my training data. I can answer questions about your scores—try asking about a specific one!"}
             return {"response": "No relevant information found. Please analyze a URL or ask about my trained data."}
 
-        # Prepare context
         context_text = "\n\n---\n\n".join([doc.page_content for doc in docs])
         prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
         prompt = prompt_template.format(context=context_text, question=query)
 
-        # Use Azure ChatOpenAI
         model = AzureChatOpenAI(
             azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
             openai_api_version=os.getenv("OPENAI_API_VERSION"),
@@ -385,6 +430,8 @@ Answer the question based only on the following context:
 
 {context}
 
+If the query is about suggestions to improve visibility, include GEO strategies like adding JSON-LD, FAQs, optimizing for Bing/Google indexing, and publishing on Reddit/Quora.
+
 ---
 
 Answer the question based on the above context: {question}
@@ -398,6 +445,7 @@ def get_score_description(score_key):
         "JSON-LD Score": "the presence of JSON-LD structured data",
         "Image ALT Score": "the percentage of images with alt text",
         "Heading Structure Score": "the use of proper heading hierarchy (e.g., one H1)",
+        "Total Heading Count": "the total number of heading tags (H1, H2, H3, H4)",
         "Entity Density Score": "the density of named entities in the text",
         "Paragraph Coherence Score": "the semantic similarity between paragraphs",
         "Visibility Score": "the ratio of visible text to total HTML",
@@ -405,6 +453,7 @@ def get_score_description(score_key):
         "Content Length Score": "the word count relative to 300 words",
         "Crawlability Score": "page load time and robots.txt accessibility",
         "Mobile Optimization Score": "the presence of a viewport meta tag",
+        "AI Crawler Access": "whether AI crawlers like GPTBot are allowed in robots.txt",
     }
     return descriptions.get(score_key, "an aspect of website quality")
 
